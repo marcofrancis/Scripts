@@ -1,35 +1,72 @@
 #!/usr/bin/env bash
-# Cycle ASUS KB backlight between off and max using state file in ~/Scripts
+#
+# Keyboard Brightness Cycle Script (USB)
+#
+# This script cycles the brightness of the ASUS Zenbook Duo keyboard between
+# off (0) and maximum (3) when it is connected via USB. It's designed to be a
+# simple toggle, often bound to a keyboard shortcut.
+#
+# How it works:
+#   1. It reads the last known brightness level from a state file.
+#   2. If the current level is 0 (off), it sets the brightness to 3 (max).
+#   3. If the current level is anything other than 0, it sets the brightness to 0 (off).
+#   4. The new level is saved back to the state file for the next run.
+#
+# This script uses a lock file to prevent race conditions if it's called
+# multiple times in quick succession.
+#
+
+# Stop on first error, undefined variable, or pipe failure
 set -euo pipefail
 
+# --- Configuration ---
+
+# Path to the file that stores the current keyboard brightness level (0-3).
+# This file is shared between the USB and Bluetooth cycle scripts.
 STATE="$HOME/Scripts/kb-level.state"
+
+# Path to the lock file to prevent concurrent execution.
 LOCK="$STATE.lock"
+
+# Path to the main script that controls the USB keyboard brightness.
 MAIN="$HOME/Scripts/duo-usb-brightness.sh"
 
-# serialize concurrent invocations
+# --- Script Logic ---
+
+# Use a lock file to ensure that only one instance of this script runs at a time.
+# This prevents the state file from becoming corrupted if the script is
+# triggered rapidly (e.g., by multiple key presses).
+# The lock is automatically released when the script exits.
 exec 9>"$LOCK"
 flock -x 9
 
-# ensure state file exists and is sane
+# Ensure the state file exists and contains a valid value (0-3).
+# If not, initialize it to "0".
 if [[ ! -f "$STATE" ]] || ! grep -qE '^[0-3]$' "$STATE"; then
   echo "0" > "$STATE"
 fi
 
+# Read the current brightness level from the state file.
 level="$(cat "$STATE")"
 
-# if it's off, go to max. Otherwise, go to off.
+# Determine the next brightness level.
+# If the keyboard is currently off, turn it to maximum brightness.
+# Otherwise, turn it off.
 if [[ "$level" -eq 0 ]]; then
   next=3
 else
   next=0
 fi
 
-# set brightness
+# Call the main brightness script to set the new level.
+# '|| true' prevents the script from exiting if the brightness command fails
+# (e.g., if the keyboard is not connected).
 "$MAIN" "$next" || true
 
-# and store next level
+# Save the new level to the state file for the next run.
 echo "$next" > "$STATE"
 
+# Provide feedback to the user about the action taken.
 if [[ "$next" -eq 0 ]]; then
     echo "Set brightness to off."
 else
