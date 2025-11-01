@@ -32,6 +32,10 @@ LOCK="$STATE.lock"
 USB_SCRIPT="$HOME/Scripts/duo-usb-brightness.sh"
 BT_SCRIPT="$HOME/Scripts/duo-bt-brightness.sh"
 
+# Timeout (in seconds) for the Bluetooth brightness helper. If the command hangs,
+# we abort after this duration and continue without failing the script.
+BT_TIMEOUT=1
+
 # --- Script Logic ---
 
 # Ensure only one instance runs at a time to protect the shared state file.
@@ -56,7 +60,19 @@ fi
 # Call both brightness scripts. Each call is allowed to fail silently in case
 # the associated device is not connected.
 "$USB_SCRIPT" "$next" || true
-"$BT_SCRIPT" "$next" || true
+
+if command -v timeout >/dev/null 2>&1; then
+  if timeout "$BT_TIMEOUT" "$BT_SCRIPT" "$next"; then
+    :
+  else
+    bt_status=$?
+    if [[ "$bt_status" -eq 124 ]]; then
+      echo "Warning: Bluetooth brightness script timed out after ${BT_TIMEOUT}s; continuing." >&2
+    fi
+  fi
+else
+  "$BT_SCRIPT" "$next" || true
+fi
 
 # Persist the new level for the next run.
 echo "$next" > "$STATE"
